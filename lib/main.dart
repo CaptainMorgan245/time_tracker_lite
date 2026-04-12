@@ -3,15 +3,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'models.dart';
 import 'database.dart';
 import 'project_management_screen.dart';
+import 'export_helper.dart';
 
 void main() {
   runApp(const MyApp());
@@ -331,8 +329,8 @@ class _TimerScreenState extends State<TimerScreen> {
 
       if (result == null) return;
 
-      final file = File(result.files.single.path!);
-      final csvString = await file.readAsString();
+      final bytes = result.files.single.bytes ?? result.files.single.path!.codeUnits;
+      final csvString = String.fromCharCodes(bytes);
 
       final csvData = const CsvToListConverter().convert(csvString);
 
@@ -397,13 +395,9 @@ class _TimerScreenState extends State<TimerScreen> {
       ];
 
       String csv = const ListToCsvConverter().convert(csvData);
-      final directory = await getTemporaryDirectory();
       final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final path = '${directory.path}/time_entries_${_employeeId}_$date.csv';
-      final file = File(path);
-      await file.writeAsString(csv);
-
-      await Share.shareXFiles([XFile(path)], subject: 'Time Entries $date');
+      final filename = 'time_entries_${_employeeId}_$date.csv';
+      await exportFile(filename, csv, 'text/csv');
 
       // Mark entries as exported
       final entryIds = _todaysEntries.map((e) => e.id!).toList();
@@ -457,16 +451,9 @@ class _TimerScreenState extends State<TimerScreen> {
       };
 
       final jsonString = const JsonEncoder.withIndent('  ').convert(exportData);
-      final directory = await getTemporaryDirectory();
       final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final path = '${directory.path}/time_entries_${_employeeId}_$date.txt';
-      final file = File(path);
-      await file.writeAsString(jsonString);
-
-      await Share.shareXFiles(
-        [XFile(path, mimeType: 'application/json')],
-        subject: 'Time Entries - $_employeeId - $date',
-      );
+      final filename = 'time_entries_${_employeeId}_$date.txt';
+      await exportFile(filename, jsonString, 'application/json');
 
       // Mark entries as exported
       final entryIds = _todaysEntries.map((e) => e.id!).toList();
