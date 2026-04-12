@@ -7,11 +7,10 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'models.dart';
-import 'database_helper.dart';
+import 'database.dart';
 import 'project_management_screen.dart';
 
 void main() {
@@ -42,7 +41,7 @@ class TimerScreen extends StatefulWidget {
 }
 
 class _TimerScreenState extends State<TimerScreen> {
-  final _dbHelper = DatabaseHelper.instance;
+  final _dbHelper = AppDatabase();
 
   List<String> _clients = [];
   String? _selectedClient;
@@ -119,6 +118,67 @@ class _TimerScreenState extends State<TimerScreen> {
               }
             },
             child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // UPDATED - Made dialog scrollable to fix overflow
+  Future<String?> _showWorkDetailsDialog() async {
+    final controller = TextEditingController();
+
+    return await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Work Details'),
+        content: SingleChildScrollView( // ADDED - Makes content scrollable
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('What work was performed? (optional)'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'Work Details',
+                  hintText: 'e.g., Installed valve and ran electrical',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+                autofocus: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: const Text('Skip'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text.isNotEmpty ? controller.text : null),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // NEW - Show work details in a view-only dialog
+  void _showWorkDetailsViewDialog(String workDetails) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Work Performed'),
+        content: SingleChildScrollView(
+          child: Text(workDetails),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
           ),
         ],
       ),
@@ -228,11 +288,14 @@ class _TimerScreenState extends State<TimerScreen> {
       return;
     }
 
+    final workDetails = await _showWorkDetailsDialog();
+
     final entry = TimeEntry(
       clientName: _selectedClient!,
       projectName: _selectedProject!,
       startTime: _startTime!,
       endTime: DateTime.now(),
+      notes: workDetails,
     );
 
     await _dbHelper.insertEntry(entry);
@@ -316,7 +379,7 @@ class _TimerScreenState extends State<TimerScreen> {
 
     try {
       List<List<dynamic>> csvData = [
-        ['Employee ID', 'Client', 'Project', 'Start Time', 'End Time', 'Duration'],
+        ['Employee ID', 'Client', 'Project', 'Start Time', 'End Time', 'Duration', 'Work Details'],
         ..._todaysEntries.map((entry) {
           final duration = entry.endTime!.difference(entry.startTime);
           final hours = duration.inHours;
@@ -328,6 +391,7 @@ class _TimerScreenState extends State<TimerScreen> {
             DateFormat('yyyy-MM-dd HH:mm').format(entry.startTime),
             DateFormat('yyyy-MM-dd HH:mm').format(entry.endTime!),
             '${hours}h ${minutes}m',
+            entry.notes ?? '',
           ];
         }),
       ];
@@ -387,6 +451,7 @@ class _TimerScreenState extends State<TimerScreen> {
             'start_time': entry.startTime.toIso8601String(),
             'end_time': entry.endTime!.toIso8601String(),
             'duration_seconds': duration.inSeconds,
+            'work_details': entry.notes,
           };
         }).toList(),
       };
@@ -496,12 +561,7 @@ class _TimerScreenState extends State<TimerScreen> {
                 final clientName = isNewClient ? newClientController.text : selectedClient;
 
                 if (clientName != null && clientName.isNotEmpty && projectController.text.isNotEmpty) {
-                  await _dbHelper.database.then((db) async {
-                    await db.insert('clients_projects', {
-                      'client_name': clientName,
-                      'project_name': projectController.text,
-                    }, conflictAlgorithm: ConflictAlgorithm.replace);
-                  });
+                  await _dbHelper.addProject(clientName, projectController.text);
                   await _loadClientsAndProjects();
                   if (mounted) Navigator.pop(context);
                 }
@@ -519,10 +579,7 @@ class _TimerScreenState extends State<TimerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Time Tracker Lite'),
-        backgroundColor: Theme
-            .of(context)
-            .colorScheme
-            .inversePrimary,
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -531,8 +588,7 @@ class _TimerScreenState extends State<TimerScreen> {
               } else if (value == 'manage_projects') {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                      builder: (context) => const ProjectManagementScreen()),
+                  MaterialPageRoute(builder: (context) => const ProjectManagementScreen()),
                 );
               } else if (value == 'change_id') {
                 _showEmployeeIdSetup();
@@ -540,8 +596,7 @@ class _TimerScreenState extends State<TimerScreen> {
                 _importClientsProjectsCSV();
               }
             },
-            itemBuilder: (context) =>
-            [
+            itemBuilder: (context) => [
               const PopupMenuItem(
                 value: 'add_client',
                 child: Text('Add Client/Project'),
@@ -570,8 +625,7 @@ class _TimerScreenState extends State<TimerScreen> {
                 _exportToCSV();
               }
             },
-            itemBuilder: (context) =>
-            [
+            itemBuilder: (context) => [
               const PopupMenuItem(
                 value: 'json',
                 child: Text('Export JSON (for Main App)'),
@@ -589,8 +643,7 @@ class _TimerScreenState extends State<TimerScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-                'No clients/projects found', style: TextStyle(fontSize: 18)),
+            const Text('No clients/projects found', style: TextStyle(fontSize: 18)),
             const SizedBox(height: 24),
             ElevatedButton.icon(
               icon: const Icon(Icons.upload_file),
@@ -652,8 +705,7 @@ class _TimerScreenState extends State<TimerScreen> {
                 ),
                 child: Text(
                   _isRunning ? 'STOP' : 'START',
-                  style: const TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -662,8 +714,7 @@ class _TimerScreenState extends State<TimerScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Pending Export', style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Pending Export', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 FutureBuilder<int>(
                   future: _dbHelper.getEntryCount(),
                   builder: (context, snapshot) {
@@ -690,17 +741,31 @@ class _TimerScreenState extends State<TimerScreen> {
                 itemBuilder: (context, index) {
                   final entry = _todaysEntries[index];
                   final duration = entry.endTime!.difference(entry.startTime);
+                  final hasNotes = entry.notes != null && entry.notes!.isNotEmpty;
+
                   return Card(
                     child: ListTile(
                       title: Text('${entry.clientName} - ${entry.projectName}'),
                       subtitle: Text(
-                        '${DateFormat('HH:mm').format(
-                            entry.startTime)} - ${DateFormat('HH:mm').format(
-                            entry.endTime!)}',
+                        '${DateFormat('HH:mm').format(entry.startTime)} - ${DateFormat('HH:mm').format(entry.endTime!)}',
                       ),
-                      trailing: Text(
-                        _formatDuration(duration),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // ADDED - Show note icon if work details exist
+                          if (hasNotes) ...[
+                            IconButton(
+                              icon: const Icon(Icons.note, size: 20),
+                              onPressed: () => _showWorkDetailsViewDialog(entry.notes!),
+                              tooltip: 'View work details',
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          Text(
+                            _formatDuration(duration),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ],
                       ),
                     ),
                   );
@@ -712,4 +777,4 @@ class _TimerScreenState extends State<TimerScreen> {
       ),
     );
   }
-  }
+}

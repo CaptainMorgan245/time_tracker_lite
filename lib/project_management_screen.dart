@@ -2,7 +2,7 @@
 
 
 import 'package:flutter/material.dart';
-import 'database_helper.dart';
+import 'database.dart';
 
 class ProjectManagementScreen extends StatefulWidget {
   const ProjectManagementScreen({super.key});
@@ -23,7 +23,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _loadProjects() async {
     setState(() => _isLoading = true);
-    final projects = await DatabaseHelper.instance.getAllProjects();
+    final projects = await AppDatabase().getAllProjects();
     setState(() {
       _projects = projects;
       _isLoading = false;
@@ -51,7 +51,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     );
 
     if (confirmed == true) {
-      await DatabaseHelper.instance.deleteProject(clientName, projectName);
+      await AppDatabase().deleteProject(clientName, projectName);
       _loadProjects(); // Refresh the list
 
       if (mounted) {
@@ -83,7 +83,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     );
 
     if (confirmed == true) {
-      await DatabaseHelper.instance.deleteAllProjects();
+      await AppDatabase().deleteAllProjects();
       _loadProjects(); // Refresh the list
 
       if (mounted) {
@@ -124,8 +124,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
         itemCount: _projects.length,
         itemBuilder: (context, index) {
           final project = _projects[index];
-          final clientName = project['client_name']!;
-          final projectName = project['project_name']!;
+          // Note: Drift's getAllProjects returns keys 'client' and 'project'
+          final clientName = project['client']!;
+          final projectName = project['project']!;
 
           return Card(
             child: ListTile(
