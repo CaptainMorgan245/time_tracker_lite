@@ -214,7 +214,13 @@ class AppDatabase extends _$AppDatabase {
 }
 
 QueryExecutor _openConnection() {
-  return driftDatabase(name: 'time_tracker_lite');
+  return driftDatabase(
+    name: 'time_tracker_lite',
+    web: DriftWebOptions(
+      sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+      driftWorker: Uri.parse('drift_worker.worker.js'),
+    ),
+  );
 }
 
 TimeEntry _rowToEntry(TimeEntryRow row) => TimeEntry(
