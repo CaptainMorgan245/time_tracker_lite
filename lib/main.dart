@@ -167,8 +167,11 @@ class _TimerScreenState extends State<TimerScreen> {
   // NEW - Show edit/delete dialog for a time entry
   void _showEditEntryDialog(TimeEntry entry) {
     final notesController = TextEditingController(text: entry.notes ?? '');
+    final startTimeController = TextEditingController(
+      text: DateFormat('HHmm').format(entry.startTime),
+    );
     final endTimeController = TextEditingController(
-      text: entry.endTime != null ? DateFormat('HH:mm').format(entry.endTime!) : '',
+      text: entry.endTime != null ? DateFormat('HHmm').format(entry.endTime!) : '',
     );
 
     showDialog(
@@ -189,11 +192,21 @@ class _TimerScreenState extends State<TimerScreen> {
               ),
               const SizedBox(height: 16),
               TextField(
+                controller: startTimeController,
+                decoration: const InputDecoration(
+                  labelText: 'Start Time (HHmm)',
+                  border: OutlineInputBorder(),
+                  hintText: 'e.g., 0900',
+                ),
+                keyboardType: TextInputType.datetime,
+              ),
+              const SizedBox(height: 16),
+              TextField(
                 controller: endTimeController,
                 decoration: const InputDecoration(
-                  labelText: 'End Time (HH:mm)',
+                  labelText: 'End Time (HHmm)',
                   border: OutlineInputBorder(),
-                  hintText: 'e.g., 14:30',
+                  hintText: 'e.g., 1430',
                 ),
                 keyboardType: TextInputType.datetime,
               ),
@@ -220,28 +233,44 @@ class _TimerScreenState extends State<TimerScreen> {
               const SizedBox(width: 8),
               ElevatedButton(
                 onPressed: () async {
-                  DateTime? newEndTime = entry.endTime;
-                  if (endTimeController.text.isNotEmpty) {
+                  DateTime newStartTime = entry.startTime;
+                  final startText = startTimeController.text.trim();
+                  if (startText.length == 4) {
                     try {
-                      final parts = endTimeController.text.split(':');
-                      if (parts.length == 2) {
-                        final hours = int.parse(parts[0]);
-                        final minutes = int.parse(parts[1]);
-                        final baseDate = entry.endTime ?? entry.startTime;
-                        newEndTime = DateTime(
-                          baseDate.year,
-                          baseDate.month,
-                          baseDate.day,
-                          hours,
-                          minutes,
-                        );
-                      }
+                      final hours = int.parse(startText.substring(0, 2));
+                      final minutes = int.parse(startText.substring(2, 4));
+                      newStartTime = DateTime(
+                        entry.startTime.year,
+                        entry.startTime.month,
+                        entry.startTime.day,
+                        hours,
+                        minutes,
+                      );
+                    } catch (e) {
+                      // keep original start time if parsing fails
+                    }
+                  }
+                  DateTime? newEndTime = entry.endTime;
+                  final endText = endTimeController.text.trim();
+                  if (endText.length == 4) {
+                    try {
+                      final hours = int.parse(endText.substring(0, 2));
+                      final minutes = int.parse(endText.substring(2, 4));
+                      final baseDate = entry.endTime ?? entry.startTime;
+                      newEndTime = DateTime(
+                        baseDate.year,
+                        baseDate.month,
+                        baseDate.day,
+                        hours,
+                        minutes,
+                      );
                     } catch (e) {
                       // keep original end time if parsing fails
                     }
                   }
                   final updatedEntry = entry.copyWith(
                     notes: notesController.text,
+                    startTime: newStartTime,
                     endTime: newEndTime,
                   );
                   await _dbHelper.updateEntry(updatedEntry);
