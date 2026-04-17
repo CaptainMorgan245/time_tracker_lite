@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'models.dart';
 import 'database.dart';
 import 'project_management_screen.dart';
+import 'client_management_screen.dart';
 import 'export_helper.dart';
 
 void main() {
@@ -675,6 +676,20 @@ class _TimerScreenState extends State<TimerScreen> {
                 _showAddClientDialog();
               } else if (value == 'add_project') {
                 _showAddProjectDialog();
+              } else if (value == 'manage_clients') {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ClientManagementScreen()),
+                );
+                await _loadClientsAndProjects();
+                if (_selectedClient != null &&
+                    !_clients.any((c) => c.id == _selectedClient!.id)) {
+                  setState(() {
+                    _selectedClient = null;
+                    _selectedProject = null;
+                    _availableProjects = [];
+                  });
+                }
               } else if (value == 'manage_projects') {
                 await Navigator.push(
                   context,
@@ -714,6 +729,10 @@ class _TimerScreenState extends State<TimerScreen> {
               const PopupMenuItem(
                 value: 'add_project',
                 child: Text('Add Project'),
+              ),
+              const PopupMenuItem(
+                value: 'manage_clients',
+                child: Text('Manage Clients'),
               ),
               const PopupMenuItem(
                 value: 'manage_projects',

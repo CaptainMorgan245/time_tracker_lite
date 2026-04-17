@@ -250,6 +250,31 @@ class AppDatabase extends _$AppDatabase {
     return row.id;
   }
 
+  Future<void> renameClient(int id, String newName) {
+    return (update(clients)..where((c) => c.id.equals(id)))
+        .write(ClientsCompanion(name: Value(newName)));
+  }
+
+  /// Returns the number of time entries recorded against this client.
+  /// Used to warn before deletion.
+  Future<int> getEntryCountForClient(int clientId) async {
+    final result = await customSelect(
+      'SELECT COUNT(*) AS c FROM time_entries WHERE client_id = ?',
+      variables: [Variable.withInt(clientId)],
+      readsFrom: {timeEntries},
+    ).getSingle();
+    return result.read<int>('c');
+  }
+
+  /// Deletes the client and all of its projects.
+  /// Time entries are left intact (client_id becomes a dangling reference).
+  Future<void> deleteClient(int id) {
+    return transaction(() async {
+      await (delete(projects)..where((p) => p.clientId.equals(id))).go();
+      await (delete(clients)..where((c) => c.id.equals(id))).go();
+    });
+  }
+
   // ── Projects ──────────────────────────────────────────────────────────────────
 
   Future<List<ProjectRow>> getProjects(int clientId) {
