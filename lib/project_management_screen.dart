@@ -12,7 +12,7 @@ class ProjectManagementScreen extends StatefulWidget {
 }
 
 class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
-  List<Map<String, String>> _projects = [];
+  List<ProjectWithClient> _projects = [];
   bool _isLoading = true;
 
   @override
@@ -30,7 +30,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     });
   }
 
-  Future<void> _deleteProject(String clientName, String projectName) async {
+  Future<void> _deleteProject(int projectId, String clientName, String projectName) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -51,7 +51,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     );
 
     if (confirmed == true) {
-      await AppDatabase().deleteProject(clientName, projectName);
+      await AppDatabase().deleteProject(projectId);
       _loadProjects(); // Refresh the list
 
       if (mounted) {
@@ -124,17 +124,14 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
         itemCount: _projects.length,
         itemBuilder: (context, index) {
           final project = _projects[index];
-          // Note: Drift's getAllProjects returns keys 'client' and 'project'
-          final clientName = project['client']!;
-          final projectName = project['project']!;
 
           return Card(
             child: ListTile(
-              title: Text(projectName),
-              subtitle: Text('Client: $clientName'),
+              title: Text(project.projectName),
+              subtitle: Text('Client: ${project.clientName}'),
               trailing: IconButton(
                 icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _deleteProject(clientName, projectName),
+                onPressed: () => _deleteProject(project.projectId, project.clientName, project.projectName),
               ),
             ),
           );

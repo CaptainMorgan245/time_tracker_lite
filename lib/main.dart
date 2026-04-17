@@ -41,11 +41,11 @@ class TimerScreen extends StatefulWidget {
 class _TimerScreenState extends State<TimerScreen> {
   final _dbHelper = AppDatabase();
 
-  List<String> _clients = [];
-  String? _selectedClient;
-  String? _selectedProject;
+  List<ClientRow> _clients = [];
+  ClientRow? _selectedClient;
+  ProjectRow? _selectedProject;
   String? _employeeId;
-  List<String> _availableProjects = [];
+  List<ProjectRow> _availableProjects = [];
 
   bool _isRunning = false;
   DateTime? _startTime;
@@ -261,9 +261,18 @@ class _TimerScreenState extends State<TimerScreen> {
     final timerState = await _dbHelper.loadTimerState();
     if (timerState != null) {
       final startTime = DateTime.parse(timerState['start']);
+      final clientId = timerState['client_id'] as int;
+      final projectId = timerState['project_id'] as int;
+      final allClients = await _dbHelper.getClients();
+      final clientRow = allClients.where((c) => c.id == clientId).firstOrNull;
+      final projects = clientRow != null
+          ? await _dbHelper.getProjects(clientId)
+          : <ProjectRow>[];
+      final projectRow = projects.where((p) => p.id == projectId).firstOrNull;
       setState(() {
-        _selectedClient = timerState['client'];
-        _selectedProject = timerState['project'];
+        _selectedClient = clientRow;
+        _selectedProject = projectRow;
+        _availableProjects = projects;
         _startTime = startTime;
         _isRunning = true;
         _elapsed = DateTime.now().difference(startTime);
@@ -291,7 +300,7 @@ class _TimerScreenState extends State<TimerScreen> {
     });
   }
 
-  Future<void> _onClientChanged(String? client) async {
+  Future<void> _onClientChanged(ClientRow? client) async {
     if (client == null) {
       setState(() {
         _selectedClient = null;
@@ -301,7 +310,7 @@ class _TimerScreenState extends State<TimerScreen> {
       return;
     }
 
-    final projects = await _dbHelper.getProjects(client);
+    final projects = await _dbHelper.getProjects(client.id);
     setState(() {
       _selectedClient = client;
       _selectedProject = null;
@@ -320,8 +329,8 @@ class _TimerScreenState extends State<TimerScreen> {
     final startTime = DateTime.now();
 
     await _dbHelper.saveTimerState(
-      clientName: _selectedClient!,
-      projectName: _selectedProject!,
+      clientId: _selectedClient!.id,
+      projectId: _selectedProject!.id,
       startTime: startTime,
     );
 
@@ -345,8 +354,8 @@ class _TimerScreenState extends State<TimerScreen> {
     final workDetails = await _showWorkDetailsDialog();
 
     final entry = TimeEntry(
-      clientName: _selectedClient!,
-      projectName: _selectedProject!,
+      clientName: _selectedClient!.name,
+      projectName: _selectedProject!.name,
       startTime: _startTime!,
       endTime: DateTime.now(),
       notes: workDetails,
@@ -550,7 +559,7 @@ class _TimerScreenState extends State<TimerScreen> {
           ElevatedButton(
             onPressed: () async {
               if (clientController.text.isNotEmpty) {
-                await _dbHelper.addProject(clientController.text, '');
+                await _dbHelper.insertClient(clientController.text);
                 await _loadClientsAndProjects();
                 if (mounted) Navigator.pop(context);
               }
@@ -571,7 +580,7 @@ class _TimerScreenState extends State<TimerScreen> {
     }
 
     final projectController = TextEditingController();
-    String? selectedClient = _clients.first;
+    ClientRow? selectedClient = _clients.first;
 
     await showDialog(
       context: context,
@@ -581,12 +590,12 @@ class _TimerScreenState extends State<TimerScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              DropdownButtonFormField<String>(
+              DropdownButtonFormField<ClientRow>(
                 value: selectedClient,
                 decoration: const InputDecoration(labelText: 'Client'),
-                items: _clients.map((client) => DropdownMenuItem(
+                items: _clients.map((client) => DropdownMenuItem<ClientRow>(
                   value: client,
-                  child: Text(client),
+                  child: Text(client.name),
                 )).toList(),
                 onChanged: (value) {
                   setDialogState(() {
@@ -610,7 +619,7 @@ class _TimerScreenState extends State<TimerScreen> {
             ElevatedButton(
               onPressed: () async {
                 if (selectedClient != null && projectController.text.isNotEmpty) {
-                  await _dbHelper.addProject(selectedClient!, projectController.text);
+                  await _dbHelper.addProject(selectedClient!.id, projectController.text);
                   await _loadClientsAndProjects();
                   await _onClientChanged(selectedClient);
                   if (mounted) Navigator.pop(context);
@@ -632,16 +641,36 @@ class _TimerScreenState extends State<TimerScreen> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           PopupMenuButton<String>(
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'add_client') {
                 _showAddClientDialog();
               } else if (value == 'add_project') {
                 _showAddProjectDialog();
               } else if (value == 'manage_projects') {
-                Navigator.push(
+                await Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const ProjectManagementScreen()),
                 );
+                await _loadClientsAndProjects();
+                if (_selectedClient != null) {
+                  if (!_clients.any((c) => c.id == _selectedClient!.id)) {
+                    // Selected client was removed (e.g. Delete All)
+                    setState(() {
+                      _selectedClient = null;
+                      _selectedProject = null;
+                      _availableProjects = [];
+                    });
+                  } else {
+                    final projects = await _dbHelper.getProjects(_selectedClient!.id);
+                    setState(() {
+                      _availableProjects = projects;
+                      if (_selectedProject != null &&
+                          !projects.any((p) => p.id == _selectedProject!.id)) {
+                        _selectedProject = null;
+                      }
+                    });
+                  }
+                }
               } else if (value == 'change_id') {
                 _showEmployeeIdSetup();
               } else if (value == 'import_csv') {
@@ -719,26 +748,26 @@ class _TimerScreenState extends State<TimerScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            DropdownButtonFormField<String>(
+            DropdownButtonFormField<ClientRow>(
               value: _selectedClient,
               decoration: const InputDecoration(
                 labelText: 'Client',
                 border: OutlineInputBorder(),
               ),
               items: _clients.map((client) {
-                return DropdownMenuItem(value: client, child: Text(client));
+                return DropdownMenuItem<ClientRow>(value: client, child: Text(client.name));
               }).toList(),
               onChanged: _isRunning ? null : _onClientChanged,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
+            DropdownButtonFormField<ProjectRow>(
               value: _selectedProject,
               decoration: const InputDecoration(
                 labelText: 'Project',
                 border: OutlineInputBorder(),
               ),
               items: _availableProjects.map((project) {
-                return DropdownMenuItem(value: project, child: Text(project));
+                return DropdownMenuItem<ProjectRow>(value: project, child: Text(project.name));
               }).toList(),
               onChanged: _isRunning ? null : (value) {
                 setState(() => _selectedProject = value);
