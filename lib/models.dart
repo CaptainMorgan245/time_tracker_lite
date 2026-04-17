@@ -19,6 +19,26 @@ class TimeEntry {
     this.isExported = false,
   });
 
+  TimeEntry copyWith({
+    int? id,
+    String? clientName,
+    String? projectName,
+    DateTime? startTime,
+    DateTime? endTime,
+    String? notes,
+    bool? isExported,
+  }) {
+    return TimeEntry(
+      id: id ?? this.id,
+      clientName: clientName ?? this.clientName,
+      projectName: projectName ?? this.projectName,
+      startTime: startTime ?? this.startTime,
+      endTime: endTime ?? this.endTime,
+      notes: notes ?? this.notes,
+      isExported: isExported ?? this.isExported,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,

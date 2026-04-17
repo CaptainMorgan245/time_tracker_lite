@@ -164,19 +164,93 @@ class _TimerScreenState extends State<TimerScreen> {
     );
   }
 
-  // NEW - Show work details in a view-only dialog
-  void _showWorkDetailsViewDialog(String workDetails) {
+  // NEW - Show edit/delete dialog for a time entry
+  void _showEditEntryDialog(TimeEntry entry) {
+    final notesController = TextEditingController(text: entry.notes ?? '');
+    final endTimeController = TextEditingController(
+      text: entry.endTime != null ? DateFormat('HH:mm').format(entry.endTime!) : '',
+    );
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Work Performed'),
+        title: const Text('Edit Entry'),
         content: SingleChildScrollView(
-          child: Text(workDetails),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: notesController,
+                decoration: const InputDecoration(
+                  labelText: 'Work Details',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: endTimeController,
+                decoration: const InputDecoration(
+                  labelText: 'End Time (HH:mm)',
+                  border: OutlineInputBorder(),
+                  hintText: 'e.g., 14:30',
+                ),
+                keyboardType: TextInputType.datetime,
+              ),
+            ],
+          ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+          Row(
+            children: [
+              TextButton(
+                onPressed: () async {
+                  await _dbHelper.deleteEntry(entry.id!);
+                  await _loadTodaysEntries();
+                  if (mounted) Navigator.pop(context);
+                },
+                child: const Text('Delete',
+                    style: TextStyle(color: Colors.red)),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  DateTime? newEndTime = entry.endTime;
+                  if (endTimeController.text.isNotEmpty) {
+                    try {
+                      final parts = endTimeController.text.split(':');
+                      if (parts.length == 2) {
+                        final hours = int.parse(parts[0]);
+                        final minutes = int.parse(parts[1]);
+                        final baseDate = entry.endTime ?? entry.startTime;
+                        newEndTime = DateTime(
+                          baseDate.year,
+                          baseDate.month,
+                          baseDate.day,
+                          hours,
+                          minutes,
+                        );
+                      }
+                    } catch (e) {
+                      // keep original end time if parsing fails
+                    }
+                  }
+                  final updatedEntry = entry.copyWith(
+                    notes: notesController.text,
+                    endTime: newEndTime,
+                  );
+                  await _dbHelper.updateEntry(updatedEntry);
+                  await _loadTodaysEntries();
+                  if (mounted) Navigator.pop(context);
+                },
+                child: const Text('Save'),
+              ),
+            ],
           ),
         ],
       ),
@@ -267,24 +341,6 @@ class _TimerScreenState extends State<TimerScreen> {
   Future<void> _stopTimer() async {
     _timer?.cancel();
     await _dbHelper.clearTimerState();
-
-    final canAdd = await _dbHelper.canAddEntry();
-    if (!canAdd) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Free trial limit reached (50 entries). Upgrade to Pro!'),
-            duration: Duration(seconds: 5),
-          ),
-        );
-      }
-      setState(() {
-        _isRunning = false;
-        _startTime = null;
-        _elapsed = Duration.zero;
-      });
-      return;
-    }
 
     final workDetails = await _showWorkDetailsDialog();
 
@@ -474,11 +530,48 @@ class _TimerScreenState extends State<TimerScreen> {
     }
   }
 
-  Future<void> _showAddClientProjectDialog() async {
+  Future<void> _showAddClientDialog() async {
+    final clientController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Client'),
+        content: TextField(
+          controller: clientController,
+          decoration: const InputDecoration(labelText: 'Client Name'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (clientController.text.isNotEmpty) {
+                await _dbHelper.addProject(clientController.text, '');
+                await _loadClientsAndProjects();
+                if (mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAddProjectDialog() async {
+    if (_clients.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add a client first')),
+      );
+      return;
+    }
+
     final projectController = TextEditingController();
-    String? selectedClient;
-    bool isNewClient = false;
-    final newClientController = TextEditingController();
+    String? selectedClient = _clients.first;
 
     await showDialog(
       context: context,
@@ -488,53 +581,24 @@ class _TimerScreenState extends State<TimerScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Client selection
-              if (!isNewClient) ...[
-                DropdownButtonFormField<String>(
-                  value: selectedClient,
-                  decoration: const InputDecoration(labelText: 'Client'),
-                  items: [
-                    ..._clients.map((client) => DropdownMenuItem(
-                      value: client,
-                      child: Text(client),
-                    )),
-                    const DropdownMenuItem(
-                      value: '__new__',
-                      child: Text('+ Add New Client'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    setDialogState(() {
-                      if (value == '__new__') {
-                        isNewClient = true;
-                        selectedClient = null;
-                      } else {
-                        selectedClient = value;
-                      }
-                    });
-                  },
-                ),
-              ] else ...[
-                TextField(
-                  controller: newClientController,
-                  decoration: InputDecoration(
-                    labelText: 'New Client Name',
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () {
-                        setDialogState(() {
-                          isNewClient = false;
-                          newClientController.clear();
-                        });
-                      },
-                    ),
-                  ),
-                ),
-              ],
+              DropdownButtonFormField<String>(
+                value: selectedClient,
+                decoration: const InputDecoration(labelText: 'Client'),
+                items: _clients.map((client) => DropdownMenuItem(
+                  value: client,
+                  child: Text(client),
+                )).toList(),
+                onChanged: (value) {
+                  setDialogState(() {
+                    selectedClient = value;
+                  });
+                },
+              ),
               const SizedBox(height: 16),
               TextField(
                 controller: projectController,
                 decoration: const InputDecoration(labelText: 'Project Name'),
+                autofocus: true,
               ),
             ],
           ),
@@ -545,15 +609,14 @@ class _TimerScreenState extends State<TimerScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                final clientName = isNewClient ? newClientController.text : selectedClient;
-
-                if (clientName != null && clientName.isNotEmpty && projectController.text.isNotEmpty) {
-                  await _dbHelper.addProject(clientName, projectController.text);
+                if (selectedClient != null && projectController.text.isNotEmpty) {
+                  await _dbHelper.addProject(selectedClient!, projectController.text);
                   await _loadClientsAndProjects();
+                  await _onClientChanged(selectedClient);
                   if (mounted) Navigator.pop(context);
                 }
               },
-              child: const Text('Add'),
+              child: const Text('Save'),
             ),
           ],
         ),
@@ -571,7 +634,9 @@ class _TimerScreenState extends State<TimerScreen> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'add_client') {
-                _showAddClientProjectDialog();
+                _showAddClientDialog();
+              } else if (value == 'add_project') {
+                _showAddProjectDialog();
               } else if (value == 'manage_projects') {
                 Navigator.push(
                   context,
@@ -586,7 +651,11 @@ class _TimerScreenState extends State<TimerScreen> {
             itemBuilder: (context) => [
               const PopupMenuItem(
                 value: 'add_client',
-                child: Text('Add Client/Project'),
+                child: Text('Add Client'),
+              ),
+              const PopupMenuItem(
+                value: 'add_project',
+                child: Text('Add Project'),
               ),
               const PopupMenuItem(
                 value: 'manage_projects',
@@ -641,7 +710,7 @@ class _TimerScreenState extends State<TimerScreen> {
             ElevatedButton.icon(
               icon: const Icon(Icons.add),
               label: const Text('Add Manually'),
-              onPressed: _showAddClientProjectDialog,
+              onPressed: _showAddClientDialog,
             ),
           ],
         ),
@@ -702,21 +771,6 @@ class _TimerScreenState extends State<TimerScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Pending Export', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                FutureBuilder<int>(
-                  future: _dbHelper.getEntryCount(),
-                  builder: (context, snapshot) {
-                    final count = snapshot.data ?? 0;
-                    final remaining = 50 - count;
-                    return Text(
-                      'Trial 50: $remaining left',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: remaining < 10 ? Colors.red : Colors.grey[600],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    );
-                  },
-                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -728,7 +782,6 @@ class _TimerScreenState extends State<TimerScreen> {
                 itemBuilder: (context, index) {
                   final entry = _todaysEntries[index];
                   final duration = entry.endTime!.difference(entry.startTime);
-                  final hasNotes = entry.notes != null && entry.notes!.isNotEmpty;
 
                   return Card(
                     child: ListTile(
@@ -739,15 +792,12 @@ class _TimerScreenState extends State<TimerScreen> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // ADDED - Show note icon if work details exist
-                          if (hasNotes) ...[
-                            IconButton(
-                              icon: const Icon(Icons.note, size: 20),
-                              onPressed: () => _showWorkDetailsViewDialog(entry.notes!),
-                              tooltip: 'View work details',
-                            ),
-                            const SizedBox(width: 8),
-                          ],
+                          IconButton(
+                            icon: const Icon(Icons.edit, size: 20),
+                            onPressed: () => _showEditEntryDialog(entry),
+                            tooltip: 'Edit entry',
+                          ),
+                          const SizedBox(width: 8),
                           Text(
                             _formatDuration(duration),
                             style: const TextStyle(fontWeight: FontWeight.bold),

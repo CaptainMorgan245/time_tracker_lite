@@ -95,11 +95,6 @@ class AppDatabase extends _$AppDatabase {
         .write(const TimeEntriesCompanion(isExported: Value(true)));
   }
 
-  Future<bool> canAddEntry() async {
-    final count = await getEntryCount();
-    return count < 50;
-  }
-
   Future<int> getEntryCount() async {
     final count = await customSelect(
       'SELECT COUNT(*) AS c FROM time_entries',
@@ -170,6 +165,10 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> deleteAllProjects() async {
     await delete(clientsProjects).go();
+  }
+
+  Future<void> deleteEntry(int id) async {
+    await (delete(timeEntries)..where((t) => t.id.equals(id))).go();
   }
 
   Future<void> saveEmployeeId(String employeeId) async {
