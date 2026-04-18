@@ -83,12 +83,12 @@ class _TimerScreenState extends State<TimerScreen> {
     }
   }
 
-  Future<void> _showEmployeeIdSetup() async {
+  Future<void> _showEmployeeIdSetup({bool canCancel = false}) async {
     final controller = TextEditingController();
 
     await showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: canCancel,
       builder: (context) => AlertDialog(
         title: const Text('Welcome to Time Tracker Lite'),
         content: Column(
@@ -106,6 +106,11 @@ class _TimerScreenState extends State<TimerScreen> {
           ],
         ),
         actions: [
+          if (canCancel)
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
           ElevatedButton(
             onPressed: () async {
               if (controller.text.isNotEmpty) {
@@ -716,7 +721,7 @@ class _TimerScreenState extends State<TimerScreen> {
                   }
                 }
               } else if (value == 'change_id') {
-                _showEmployeeIdSetup();
+                _showEmployeeIdSetup(canCancel: true);
               } else if (value == 'import_csv') {
                 _importClientsProjectsCSV();
               }

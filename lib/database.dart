@@ -318,6 +318,22 @@ class AppDatabase extends _$AppDatabase {
     return row.id;
   }
 
+  Future<void> renameProject(int id, String newName) {
+    return (update(projects)..where((p) => p.id.equals(id)))
+        .write(ProjectsCompanion(name: Value(newName)));
+  }
+
+  /// Returns the number of time entries recorded against this project.
+  /// Used to warn before deletion.
+  Future<int> getEntryCountForProject(int projectId) async {
+    final result = await customSelect(
+      'SELECT COUNT(*) AS c FROM time_entries WHERE project_id = ?',
+      variables: [Variable.withInt(projectId)],
+      readsFrom: {timeEntries},
+    ).getSingle();
+    return result.read<int>('c');
+  }
+
   Future<void> deleteProject(int projectId) {
     return (delete(projects)..where((p) => p.id.equals(projectId))).go();
   }

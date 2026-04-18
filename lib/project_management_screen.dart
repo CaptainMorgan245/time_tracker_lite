@@ -1,6 +1,5 @@
 // lib/project_management_screen.dart
 
-
 import 'package:flutter/material.dart';
 import 'database.dart';
 
@@ -12,6 +11,7 @@ class ProjectManagementScreen extends StatefulWidget {
 }
 
 class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
+  final _db = AppDatabase();
   List<ProjectWithClient> _projects = [];
   bool _isLoading = true;
 
@@ -23,19 +23,78 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
 
   Future<void> _loadProjects() async {
     setState(() => _isLoading = true);
-    final projects = await AppDatabase().getAllProjects();
+    final projects = await _db.getAllProjects();
     setState(() {
       _projects = projects;
       _isLoading = false;
     });
   }
 
-  Future<void> _deleteProject(int projectId, String clientName, String projectName) async {
+  Future<void> _renameProject(ProjectWithClient project) async {
+    final controller = TextEditingController(text: project.projectName);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename Project'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Project Name'),
+          autofocus: true,
+          onSubmitted: (_) => Navigator.pop(context, true),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    final newName = controller.text.trim();
+    if (newName.isEmpty || newName == project.projectName) return;
+
+    await _db.renameProject(project.projectId, newName);
+    await _loadProjects();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Renamed to "$newName"')),
+      );
+    }
+  }
+
+  Future<void> _deleteProject(ProjectWithClient project) async {
+    final entryCount = await _db.getEntryCountForProject(project.projectId);
+    if (!mounted) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Project'),
-        content: Text('Delete "$projectName" for $clientName?\n\nThis will remove the project from your list.'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Delete "${project.projectName}"?'),
+            const SizedBox(height: 8),
+            if (entryCount > 0) ...[
+              Text(
+                'Warning: $entryCount time ${entryCount == 1 ? 'entry' : 'entries'} '
+                'recorded against this project will be orphaned.',
+                style: const TextStyle(color: Colors.orange),
+              ),
+              const SizedBox(height: 8),
+            ],
+            const Text('This cannot be undone.'),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -50,15 +109,15 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       ),
     );
 
-    if (confirmed == true) {
-      await AppDatabase().deleteProject(projectId);
-      _loadProjects(); // Refresh the list
+    if (confirmed != true) return;
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Deleted "$projectName"')),
-        );
-      }
+    await _db.deleteProject(project.projectId);
+    await _loadProjects();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted "${project.projectName}"')),
+      );
     }
   }
 
@@ -83,8 +142,8 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     );
 
     if (confirmed == true) {
-      await AppDatabase().deleteAllProjects();
-      _loadProjects(); // Refresh the list
+      await _db.deleteAllProjects();
+      await _loadProjects();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -113,30 +172,40 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _projects.isEmpty
-          ? const Center(
-        child: Text(
-          'No projects found.\n\nProjects are created when you start time tracking.',
-          textAlign: TextAlign.center,
-        ),
-      )
-          : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _projects.length,
-        itemBuilder: (context, index) {
-          final project = _projects[index];
-
-          return Card(
-            child: ListTile(
-              title: Text(project.projectName),
-              subtitle: Text('Client: ${project.clientName}'),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _deleteProject(project.projectId, project.clientName, project.projectName),
-              ),
-            ),
-          );
-        },
-      ),
+              ? const Center(
+                  child: Text(
+                    'No projects found.\n\nProjects are created when you start time tracking.',
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _projects.length,
+                  itemBuilder: (context, index) {
+                    final project = _projects[index];
+                    return Card(
+                      child: ListTile(
+                        title: Text(project.projectName),
+                        subtitle: Text('Client: ${project.clientName}'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              tooltip: 'Rename',
+                              onPressed: () => _renameProject(project),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              tooltip: 'Delete',
+                              onPressed: () => _deleteProject(project),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
